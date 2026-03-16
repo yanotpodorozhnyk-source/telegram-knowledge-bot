@@ -3,10 +3,10 @@ import json
 import logging
 import re
 import hashlib
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 import gspread
 from google.oauth2.service_account import Credentials
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # --- Логування ---
 logging.basicConfig(
@@ -14,10 +14,17 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- Google Sheets через Environment Variable ---
+# --- Google Sheets ---
+if 'GOOGLE_CREDENTIALS_JSON' not in os.environ:
+    logging.error("❌ Environment variable 'GOOGLE_CREDENTIALS_JSON' not found!")
+    raise KeyError("Please set the GOOGLE_CREDENTIALS_JSON environment variable in Railway")
+
+# Завантажуємо об’єкт із ENV
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS_JSON'])
 creds = Credentials.from_service_account_info(creds_dict)
 gc = gspread.authorize(creds)
+
+# Відкриваємо Google Sheet
 sheet = gc.open('База знань').sheet1
 data = sheet.get_all_records()
 
@@ -95,7 +102,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Запуск ---
 if __name__ == '__main__':
-    TOKEN = '8706539066:AAG27xXYgH0dfSgXq7g6FOjvw5DV7177yVg'
+    TOKEN = os.environ.get('TELEGRAM_TOKEN', '')
+    if not TOKEN:
+        logging.error("❌ Environment variable 'TELEGRAM_TOKEN' not set!")
+        raise KeyError("Please set TELEGRAM_TOKEN in Railway")
+
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CallbackQueryHandler(button_handler))
