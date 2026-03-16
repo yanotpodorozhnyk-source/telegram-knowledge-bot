@@ -1,10 +1,12 @@
 import os
 import json
 import logging
-import gspread
-from google.oauth2.service_account import Credentials
+import re
+import hashlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- Логування ---
 logging.basicConfig(
@@ -12,15 +14,17 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- Google Sheets через ENV ---
-json_env = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-if not json_env:
+# --- Google Sheets через ENV змінну ---
+try:
+    creds_json = os.environ['GOOGLE_CREDENTIALS_JSON']
+except KeyError:
     logging.error("❌ Environment variable 'GOOGLE_CREDENTIALS_JSON' not found!")
     raise KeyError("Please set the GOOGLE_CREDENTIALS_JSON environment variable in Railway")
 
-creds_dict = json.loads(json_env)
+creds_dict = json.loads(creds_json)
 creds = Credentials.from_service_account_info(creds_dict)
 gc = gspread.authorize(creds)
+
 sheet = gc.open('База знань').sheet1
 data = sheet.get_all_records()
 
@@ -40,7 +44,6 @@ for row in data:
 
 # --- Безпечний callback ---
 def safe_callback(text):
-    import re, hashlib
     clean = re.sub(r'\s+', '_', text.strip())
     clean = re.sub(r'[^a-zA-Z0-9_]', '', clean)
     h = hashlib.sha1(text.encode('utf-8')).hexdigest()[:20]
@@ -58,6 +61,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data_cb = query.data
 
+    # --- Категорія ---
     for cat in tree:
         if safe_callback(cat) == data_cb:
             keyboard = [[InlineKeyboardButton(sub, callback_data=safe_callback(f"{cat}|{sub}"))] for sub in tree[cat]]
@@ -66,6 +70,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"Категорія: {cat}\nОберіть підтему:", reply_markup=reply_markup)
             return
 
+    # --- Підтема ---
     for cat in tree:
         for sub in tree[cat]:
             if safe_callback(f"{cat}|{sub}") == data_cb:
@@ -76,6 +81,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"Підтема: {sub}\nОберіть питання:", reply_markup=reply_markup)
                 return
 
+    # --- Питання ---
     for cat in tree:
         for sub in tree[cat]:
             for q, ans in tree[cat][sub].items():
@@ -88,6 +94,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await query.edit_message_text(ans, reply_markup=reply_markup)
                     return
 
+    # --- Головне меню ---
     if data_cb == "main_menu":
         keyboard = [[InlineKeyboardButton(cat, callback_data=safe_callback(cat))] for cat in tree]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -95,9 +102,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Запуск ---
 if __name__ == '__main__':
-    TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+    TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        raise KeyError("Please set the TELEGRAM_BOT_TOKEN environment variable in Railway")
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CallbackQueryHandler(button_handler))
-    logging.info("Бот запущений...")
+    print("Бот запущений...")
     app.run_polling()
